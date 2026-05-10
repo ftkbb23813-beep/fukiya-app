@@ -11,7 +11,7 @@ SHEET_PRODUCTS  = '商品マスタ'
 SHEET_HISTORY   = '発注履歴'
 SHEET_SUPPLIERS = '業者マスタ'
 CREDENTIALS_FILE = 'credentials.json'
-USERS   = ['長尾', 'お母さん', '淳一']
+USERS   = ['由香', '由梨', '克治']
 METHODS = ['電話', 'FAX', 'メール', '未設定']
 # ================
 
