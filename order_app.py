@@ -19,7 +19,12 @@ def get_client():
     import os, json
     if 'gcp_service_account' in st.secrets:
         # Streamlit Cloud
-        info = json.loads(st.secrets['gcp_service_account'])
+        secret = st.secrets['gcp_service_account']
+        # 文字列（JSON）の場合とTOMLセクション（辞書）の場合の両方に対応
+        if isinstance(secret, str):
+            info = json.loads(secret)
+        else:
+            info = dict(secret)
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     else:
         # ローカル開発環境（credentials.json）
