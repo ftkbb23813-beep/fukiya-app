@@ -17,13 +17,13 @@ SCOPES = [
 
 def get_client():
     import os, json
-    if os.path.exists(CREDENTIALS_FILE):
-        # ローカル開発環境
-        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
-    else:
-        # Streamlit Cloud（secrets.toml から読み込む）
+    if 'gcp_service_account' in st.secrets:
+        # Streamlit Cloud
         info = json.loads(st.secrets['gcp_service_account'])
         creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+    else:
+        # ローカル開発環境（credentials.json）
+        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
     return gspread.authorize(creds)
 
 @st.cache_data(ttl=300)
