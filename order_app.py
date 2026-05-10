@@ -11,7 +11,7 @@ SHEET_PRODUCTS  = '商品マスタ'
 SHEET_HISTORY   = '発注履歴'
 SHEET_SUPPLIERS = '業者マスタ'
 CREDENTIALS_FILE = 'credentials.json'
-USERS = ['長尾', 'お母さん', '淳一']
+USERS   = ['長尾', 'お母さん', '淳一']
 METHODS = ['電話', 'FAX', 'メール', '未設定']
 # ================
 
@@ -20,35 +20,84 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive.readonly',
 ]
 
+# ── スマホ最適化CSS ──────────────────────────────────────────
 st.markdown("""
 <style>
-  html, body, [class*="css"] { font-size: 18px; }
-  h1 { font-size: 1.8em !important; }
-  h2 { font-size: 1.4em !important; }
+  /* ベースフォント・余白 */
+  html, body, [class*="css"] { font-size: 20px !important; }
+  .main .block-container { padding: 0.8rem 0.6rem 3rem; max-width: 100% !important; }
+
+  /* 見出し */
+  h1 { font-size: 1.5em !important; margin-bottom: 0.3em !important; }
+  h2, h3 { font-size: 1.2em !important; }
+
+  /* ボタン：大きく・押しやすく */
   .stButton > button {
-    font-size: 1.1em !important;
-    padding: 0.6em 1.2em !important;
-    border-radius: 12px !important;
-    width: 100%;
+    font-size: 1.15em !important;
+    min-height: 3.2em !important;
+    border-radius: 14px !important;
+    width: 100% !important;
+    margin-bottom: 0.4em !important;
+    white-space: normal !important;
+    line-height: 1.3 !important;
   }
+
+  /* セレクトボックス・入力欄 */
+  .stSelectbox > div, .stNumberInput > div {
+    font-size: 1.1em !important;
+  }
+  input[type=number] { font-size: 1.3em !important; min-height: 2.5em !important; }
+
+  /* 商品カード */
+  .product-card {
+    background: #f4f6f8;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  .product-name { font-size: 1.1em; font-weight: bold; margin-bottom: 4px; }
+  .product-sub  { font-size: 0.85em; color: #666; }
+
+  /* 連絡先アクションボタン（HTML） */
+  .action-btn {
+    display: block;
+    text-align: center;
+    padding: 16px 10px;
+    border-radius: 14px;
+    font-size: 1.2em;
+    font-weight: bold;
+    text-decoration: none !important;
+    color: white !important;
+    margin: 8px 0;
+  }
+  .btn-call  { background: #1a7f37; }
+  .btn-mail  { background: #0057b8; }
+  .btn-fax   { background: #7b3f00; }
+
+  /* 完了・確認ボックス */
   .success-box {
     background: #d4edda; color: #155724;
-    padding: 20px; border-radius: 12px;
+    padding: 22px; border-radius: 14px;
     font-size: 1.4em; font-weight: bold;
-    text-align: center; margin: 16px 0;
-  }
-  .contact-box {
-    background: #e8f4fd; padding: 16px;
-    border-radius: 10px; margin: 10px 0;
+    text-align: center; margin: 12px 0;
   }
   .confirm-box {
-    background: #fff8e1; padding: 20px;
-    border-radius: 12px; border: 2px solid #f0ad4e;
+    background: #fff8e1; padding: 18px;
+    border-radius: 14px; border: 2px solid #f0ad4e;
+    font-size: 1.05em; margin-bottom: 12px;
   }
+  .info-badge {
+    display: inline-block;
+    background: #e8f4fd; border-radius: 8px;
+    padding: 4px 10px; font-size: 0.9em; margin: 2px;
+  }
+
+  /* タブ */
+  .stTabs [data-baseweb="tab"] { font-size: 1em !important; padding: 10px 14px !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Google 接続 ────────────────────────────────────────────────
+# ── Google 接続 ──────────────────────────────────────────────
 def get_client():
     if 'gcp_service_account' in st.secrets:
         secret = st.secrets['gcp_service_account']
@@ -58,18 +107,16 @@ def get_client():
         creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def load_products():
     client = get_client()
-    sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_PRODUCTS)
-    return sheet.get_all_records()
+    return client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_PRODUCTS).get_all_records()
 
 @st.cache_data(ttl=30)
 def load_suppliers():
     try:
         client = get_client()
-        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_SUPPLIERS)
-        rows = sheet.get_all_records()
+        rows = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_SUPPLIERS).get_all_records()
         return {r['業者名']: r for r in rows if r.get('業者名')}
     except Exception:
         return {}
@@ -86,13 +133,9 @@ def save_supplier(name, method, contact):
     all_vals = sheet.get_all_values()
     headers  = all_vals[0] if all_vals else []
 
-    # 列インデックスを取得（なければ追加）
-    def col_idx(header):
-        if header in headers:
-            return headers.index(header) + 1
-        return None
+    def col_idx(h):
+        return (headers.index(h) + 1) if h in headers else None
 
-    # 業者名の行を探す
     name_col = col_idx('業者名')
     target_row = None
     if name_col:
@@ -100,17 +143,13 @@ def save_supplier(name, method, contact):
             if len(row) >= name_col and row[name_col - 1] == name:
                 target_row = i
                 break
-
     if target_row:
-        method_col  = col_idx('発注方法')
-        contact_col = col_idx('連絡先')
-        if method_col:
-            sheet.update_cell(target_row, method_col, method)
-        if contact_col:
-            sheet.update_cell(target_row, contact_col, contact)
+        mc = col_idx('発注方法')
+        cc = col_idx('連絡先')
+        if mc: sheet.update_cell(target_row, mc, method)
+        if cc: sheet.update_cell(target_row, cc, contact)
     else:
         sheet.append_row([name, method, contact])
-
     st.cache_data.clear()
 
 def write_order(rows):
@@ -123,146 +162,147 @@ def write_order(rows):
         sheet.append_row(['発注日時', '発注者', '仕入れ先', '品物名', '頼む数', '入数', '発注方法'])
     sheet.append_rows(rows)
 
-def show_contact_action(supplier_name, supplier_info, order_text):
-    method  = supplier_info.get('発注方法', '').strip()
-    contact = supplier_info.get('連絡先', '').strip()
-    st.markdown('<div class="contact-box">', unsafe_allow_html=True)
-    st.markdown(f'**{supplier_name} への連絡方法**')
-    if method == 'メール' and contact:
-        subject = urllib.parse.quote('【発注】フキヤファミリー')
-        body    = urllib.parse.quote(f'お世話になっております。\n以下の通り発注いたします。\n\n{order_text}\n\nよろしくお願いいたします。\nフキヤファミリー')
-        st.markdown(f'📧 メール：**{contact}**')
-        st.markdown(f'[👆 タップしてメールを送る](mailto:{contact}?subject={subject}&body={body})')
-    elif method == '電話' and contact:
+def contact_buttons(supplier_name, info, order_text):
+    """メール・電話・FAXのアクションボタンを表示"""
+    method  = info.get('発注方法', '').strip()
+    contact = info.get('連絡先', '').strip()
+
+    if not contact:
+        st.info('💡 連絡先が未登録です。「業者管理」タブから登録できます。')
+        return
+
+    subject = urllib.parse.quote(f'【発注】フキヤファミリー　{supplier_name}')
+    body    = urllib.parse.quote(
+        f'いつもお世話になっております。\n以下の通り発注をお願いします。\n\n'
+        f'{order_text}\n\nよろしくお願いいたします。\nフキヤファミリー'
+    )
+
+    if method == 'メール':
+        href = f'mailto:{contact}?subject={subject}&body={body}'
+        st.markdown(
+            f'<a href="{href}" class="action-btn btn-mail">📧 {contact} にメールを送る</a>',
+            unsafe_allow_html=True
+        )
+    elif method == '電話':
         tel = contact.replace('-', '').replace(' ', '')
-        st.markdown(f'📞 電話：**{contact}**')
-        st.markdown(f'[👆 タップして電話をかける](tel:{tel})')
-    elif method == 'FAX' and contact:
-        st.markdown(f'📠 FAX番号：**{contact}**')
-        st.markdown('以下の内容をFAXしてください：')
+        st.markdown(
+            f'<a href="tel:{tel}" class="action-btn btn-call">📞 {contact} に電話する</a>',
+            unsafe_allow_html=True
+        )
+    elif method == 'FAX':
+        st.markdown(
+            f'<a href="#" class="action-btn btn-fax">📠 FAX番号：{contact}</a>',
+            unsafe_allow_html=True
+        )
+        st.markdown('**以下の内容をFAXしてください：**')
         st.code(order_text, language=None)
-    else:
-        st.info('連絡先が未登録です。「業者の連絡先管理」から登録できます。')
-    st.markdown('</div>', unsafe_allow_html=True)
 
-# ── セッション初期化 ──────────────────────────────────────────
-for key, val in [('confirming', False), ('pending', []), ('done', False), ('done_info', [])]:
-    if key not in st.session_state:
-        st.session_state[key] = val
+# ── セッション初期化 ─────────────────────────────────────────
+for k, v in [('confirming', False), ('pending', []), ('done', False), ('done_info', [])]:
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-# ── ページ切り替え ────────────────────────────────────────────
+# ── タイトル＋タブ ───────────────────────────────────────────
 st.title('📦 フキヤファミリー 発注アプリ')
-page = st.sidebar.radio('メニュー', ['📦 発注する', '📋 業者の連絡先管理'], label_visibility='collapsed')
+tab_order, tab_mgmt = st.tabs(['📦　発注する', '📋　業者管理'])
 
 # ════════════════════════════════════════════════════════════════
-# ページ①：発注する
+# タブ①：発注する
 # ════════════════════════════════════════════════════════════════
-if page == '📦 発注する':
-
+with tab_order:
     try:
-        all_products = load_products()
+        all_products  = load_products()
         suppliers_map = load_suppliers()
     except Exception as e:
         st.error(f'データの読み込みに失敗しました：{e}')
         st.stop()
 
-    # 完了画面
+    # ── 完了画面 ──────────────────────────────────────────────
     if st.session_state.done:
         st.markdown('<div class="success-box">✅ 注文を受け付けました！</div>', unsafe_allow_html=True)
-        for info in st.session_state.done_info:
-            show_contact_action(info['supplier'], suppliers_map.get(info['supplier'], {}), info['text'])
+        for d in st.session_state.done_info:
+            st.markdown(f'**{d["supplier"]}** への連絡：')
+            contact_buttons(d['supplier'], suppliers_map.get(d['supplier'], {}), d['text'])
         st.divider()
-        if st.button('🔄 続けて発注する'):
+        if st.button('🔄 続けて発注する', type='primary'):
             st.session_state.done = False
             st.session_state.done_info = []
             st.rerun()
         st.stop()
 
-    # 確認画面
+    # ── 確認画面 ──────────────────────────────────────────────
     if st.session_state.confirming:
         st.markdown('<div class="confirm-box">', unsafe_allow_html=True)
-        st.subheader('⚠️ 本当に注文しますか？')
+        st.subheader('⚠️ この内容で注文しますか？')
         for item in st.session_state.pending:
-            st.markdown(f'・**{item["name"]}** を **{item["qty"]} 個**')
+            st.markdown(f'・**{item["name"]}**　{item["qty"]} 個')
         st.markdown(f'発注先：**{st.session_state.pending[0]["supplier"]}**')
         st.markdown(f'発注者：**{st.session_state.pending[0]["user"]}**')
         st.markdown('</div>', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button('✅ はい、注文します', type='primary'):
-                now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-                rows, lines = [], []
-                for item in st.session_state.pending:
-                    rows.append([now, item['user'], item['supplier'],
-                                  item['name'], item['qty'], item['min_qty'], item['method']])
-                    lines.append(f'・{item["name"]}　{item["qty"]}個')
-                try:
-                    write_order(rows)
-                    supplier = st.session_state.pending[0]['supplier']
-                    st.session_state.done_info = [{'supplier': supplier, 'text': '\n'.join(lines)}]
-                    st.session_state.done = True
-                    st.session_state.confirming = False
-                    st.session_state.pending = []
-                    st.rerun()
-                except Exception as e:
-                    st.error(f'記録に失敗しました：{e}')
-        with col2:
-            if st.button('❌ やめる・修正する'):
+
+        if st.button('✅ はい、注文します', type='primary'):
+            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+            rows, lines = [], []
+            for item in st.session_state.pending:
+                rows.append([now, item['user'], item['supplier'],
+                              item['name'], item['qty'], item['min_qty'], item['method']])
+                lines.append(f'・{item["name"]}　{item["qty"]}個')
+            try:
+                write_order(rows)
+                supplier = st.session_state.pending[0]['supplier']
+                st.session_state.done_info = [{'supplier': supplier, 'text': '\n'.join(lines)}]
+                st.session_state.done = True
                 st.session_state.confirming = False
                 st.session_state.pending = []
                 st.rerun()
+            except Exception as e:
+                st.error(f'記録に失敗しました：{e}')
+
+        if st.button('❌ やめる・修正する'):
+            st.session_state.confirming = False
+            st.session_state.pending = []
+            st.rerun()
         st.stop()
 
-    # 発注入力
-    st.sidebar.header('👤 発注者')
-    user = st.sidebar.selectbox('だれが発注しますか？', USERS, label_visibility='collapsed')
-    st.sidebar.header('🏭 業者を選ぶ')
-    supplier_names = sorted(set(p.get('仕入れ先', '') for p in all_products if p.get('仕入れ先', '')))
-    selected = st.sidebar.selectbox('業者名', supplier_names, label_visibility='collapsed')
+    # ── 発注入力 ──────────────────────────────────────────────
+    user = st.selectbox('👤 発注者（だれが発注しますか？）', USERS)
 
-    # 業者詳細（タップで開く）
-    info = suppliers_map.get(selected, {})
+    supplier_names = sorted(set(p.get('仕入れ先', '') for p in all_products if p.get('仕入れ先', '')))
+    selected = st.selectbox('🏭 業者を選んでください', supplier_names)
+
+    # 業者の連絡先をワンタップで確認
+    info    = suppliers_map.get(selected, {})
     method  = info.get('発注方法', '未設定')
     contact = info.get('連絡先', '未登録')
-    icons = {'電話': '📞', 'FAX': '📠', 'メール': '📧'}
-    icon = icons.get(method, '📬')
-    with st.expander(f'{icon} {selected} の連絡先を見る・変更する'):
-        st.markdown(f'**発注方法：** {method}　／　**連絡先：** {contact}')
-        st.markdown('---')
-        new_method  = st.selectbox('発注方法を変更', METHODS,
-                                    index=METHODS.index(method) if method in METHODS else 3,
-                                    key=f'method_{selected}')
-        new_contact = st.text_input('連絡先（電話番号・メール・FAX番号）',
-                                     value=contact if contact != '未登録' else '',
-                                     key=f'contact_{selected}')
-        if st.button('💾 保存する', key=f'save_{selected}'):
-            try:
-                save_supplier(selected, new_method, new_contact)
-                st.success('保存しました！')
-            except Exception as e:
-                st.error(f'保存に失敗しました：{e}')
+    icons   = {'電話': '📞', 'FAX': '📠', 'メール': '📧'}
+    icon    = icons.get(method, '❓')
 
-    # 商品リスト
+    with st.expander(f'{icon}　{selected} の連絡先を確認する'):
+        st.markdown(f'**発注方法：** {method}')
+        st.markdown(f'**連絡先：** {contact}')
+
+    # 商品リスト（縦長・スマホ向け）
+    st.markdown(f'#### {selected} の品物一覧')
     products = [p for p in all_products if p.get('仕入れ先', '') == selected]
-    st.subheader(f'{selected}　({len(products)} 品)')
     order_quantities = {}
+
     for p in products:
         name    = p.get('商品名', '')
         min_qty = int(p.get('入数', 0) or 0)
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            label = f'**{name}**'
-            if min_qty > 0:
-                label += f'　（最低 {min_qty} 個から）'
-            st.markdown(label)
-        with col2:
-            qty = st.number_input('頼む数', min_value=0, value=0,
-                                   step=max(min_qty, 1), key=name,
-                                   label_visibility='collapsed')
+        st.markdown('<div class="product-card">', unsafe_allow_html=True)
+        sub = f'最低 {min_qty} 個から' if min_qty > 0 else ''
+        st.markdown(f'<div class="product-name">{name}</div>'
+                    f'<div class="product-sub">{sub}</div>', unsafe_allow_html=True)
+        qty = st.number_input(
+            '頼む数', min_value=0, value=0,
+            step=max(min_qty, 1), key=name,
+            label_visibility='visible'
+        )
         order_quantities[name] = (qty, min_qty)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
-    if st.button(f'📨 {selected} に発注する', use_container_width=True, type='primary'):
+    if st.button(f'📨　{selected} に発注する', use_container_width=True, type='primary'):
         errors, to_order = [], []
         for p in products:
             name = p.get('商品名', '')
@@ -270,11 +310,10 @@ if page == '📦 発注する':
             if qty == 0:
                 continue
             if min_qty > 0 and qty < min_qty:
-                errors.append(f'❌ {name}：{qty}個は最低注文数（{min_qty}個）より少ないです')
+                errors.append(f'❌ {name}：{qty}個は最低 {min_qty} 個より少ないです')
                 continue
             to_order.append({'name': name, 'qty': qty, 'min_qty': min_qty,
-                              'supplier': selected, 'user': user,
-                              'method': method})
+                              'supplier': selected, 'user': user, 'method': method})
         if errors:
             for e in errors:
                 st.error(e)
@@ -286,39 +325,44 @@ if page == '📦 発注する':
             st.rerun()
 
 # ════════════════════════════════════════════════════════════════
-# ページ②：業者の連絡先管理
+# タブ②：業者管理
 # ════════════════════════════════════════════════════════════════
-else:
-    st.subheader('📋 業者の連絡先管理')
-    st.caption('各業者をタップすると連絡先を確認・変更できます')
+with tab_mgmt:
+    st.markdown('#### 業者の連絡先一覧')
+    st.caption('業者名をタップすると連絡先を確認・変更できます')
 
     try:
-        all_products  = load_products()
-        suppliers_map = load_suppliers()
+        all_products2  = load_products()
+        suppliers_map2 = load_suppliers()
     except Exception as e:
         st.error(f'データの読み込みに失敗しました：{e}')
         st.stop()
 
-    supplier_names = sorted(set(p.get('仕入れ先', '') for p in all_products if p.get('仕入れ先', '')))
+    supplier_names2 = sorted(set(p.get('仕入れ先', '') for p in all_products2 if p.get('仕入れ先', '')))
     icons = {'電話': '📞', 'FAX': '📠', 'メール': '📧'}
 
-    for name in supplier_names:
-        info    = suppliers_map.get(name, {})
-        method  = info.get('発注方法', '未設定')
-        contact = info.get('連絡先', '未登録')
-        icon    = icons.get(method, '❓')
+    for name in supplier_names2:
+        info2   = suppliers_map2.get(name, {})
+        method2 = info2.get('発注方法', '未設定')
+        contact2= info2.get('連絡先', '未登録')
+        icon2   = icons.get(method2, '❓')
 
-        with st.expander(f'{icon}　{name}　—　{method}　{contact}'):
-            new_method  = st.selectbox('発注方法', METHODS,
-                                        index=METHODS.index(method) if method in METHODS else 3,
-                                        key=f'mgmt_method_{name}')
-            new_contact = st.text_input('連絡先',
-                                         value=contact if contact != '未登録' else '',
-                                         key=f'mgmt_contact_{name}')
-            if st.button('💾 保存する', key=f'mgmt_save_{name}'):
+        with st.expander(f'{icon2}　{name}　／　{contact2}'):
+            new_method = st.selectbox(
+                '発注方法', METHODS,
+                index=METHODS.index(method2) if method2 in METHODS else 3,
+                key=f'm_{name}'
+            )
+            new_contact = st.text_input(
+                '連絡先（電話番号・メール・FAX番号）',
+                value=contact2 if contact2 != '未登録' else '',
+                key=f'c_{name}',
+                placeholder='例）092-123-4567'
+            )
+            if st.button('💾 保存する', key=f's_{name}', type='primary'):
                 try:
                     save_supplier(name, new_method, new_contact)
-                    st.success(f'{name} の情報を保存しました！')
+                    st.success(f'✅ {name} の情報を保存しました！')
                     st.rerun()
                 except Exception as e:
                     st.error(f'保存に失敗しました：{e}')
