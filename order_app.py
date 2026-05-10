@@ -123,14 +123,14 @@ def load_suppliers():
     except Exception:
         return {}
 
-def save_supplier(name, method, contact):
+def save_supplier(name, method, tel='', email=''):
     client = get_client()
     book  = client.open_by_key(SPREADSHEET_ID)
     try:
         sheet = book.worksheet(SHEET_SUPPLIERS)
     except gspread.WorksheetNotFound:
-        sheet = book.add_worksheet(title=SHEET_SUPPLIERS, rows=200, cols=5)
-        sheet.append_row(['業者名', '発注方法', '連絡先'])
+        sheet = book.add_worksheet(title=SHEET_SUPPLIERS, rows=200, cols=6)
+        sheet.append_row(['業者名', '発注方法', '電話番号', 'メールアドレス'])
 
     all_vals = sheet.get_all_values()
     headers  = all_vals[0] if all_vals else []
@@ -146,12 +146,13 @@ def save_supplier(name, method, contact):
                 target_row = i
                 break
     if target_row:
-        mc = col_idx('発注方法')
-        cc = col_idx('連絡先')
-        if mc: sheet.update_cell(target_row, mc, method)
-        if cc: sheet.update_cell(target_row, cc, contact)
+        updates = {'発注方法': method, '電話番号': tel, 'メールアドレス': email}
+        for col_name, val in updates.items():
+            c = col_idx(col_name)
+            if c:
+                sheet.update_cell(target_row, c, val)
     else:
-        sheet.append_row([name, method, contact])
+        sheet.append_row([name, method, tel, email])
     st.cache_data.clear()
 
 def write_order(rows):
@@ -166,14 +167,26 @@ def write_order(rows):
 
 def contact_buttons(supplier_name, info, order_text=''):
     """メール・電話・FAXのアクションボタンを表示"""
-    method  = info.get('発注方法', '').strip()
-    contact = info.get('連絡先', '').strip()
+    method = info.get('発注方法', '').strip()
+    tel    = info.get('電話番号', '').strip()
+    email  = info.get('メールアドレス', '').strip()
 
-    if not contact:
-        st.info('💡 連絡先が未登録です。「業者管理」タブから登録できます。')
-        return
+    shown = False
 
-    if method == 'メール':
+    # 電話ボタン
+    if tel and method in ('電話', 'FAX', '') or (tel and not email):
+        tel_clean = tel.replace('-', '').replace(' ', '')
+        st.markdown(
+            f'<a href="tel:{tel_clean}" class="action-btn btn-call">'
+            f'📞　電話をかける<br>'
+            f'<span style="font-size:0.75em;font-weight:normal;">{tel}</span>'
+            f'</a>',
+            unsafe_allow_html=True
+        )
+        shown = True
+
+    # メールボタン
+    if email:
         subject = urllib.parse.quote(f'【発注】フキヤファミリー　{supplier_name}')
         body_text = (
             f'いつもお世話になっております。\n'
@@ -182,36 +195,31 @@ def contact_buttons(supplier_name, info, order_text=''):
             f'よろしくお願いいたします。\nフキヤファミリー'
         ) if order_text else 'フキヤファミリーより'
         body = urllib.parse.quote(body_text)
-        href = f'mailto:{contact}?subject={subject}&body={body}'
+        href = f'mailto:{email}?subject={subject}&body={body}'
         st.markdown(
             f'<a href="{href}" class="action-btn btn-mail">'
             f'✉️　メールを送る<br>'
-            f'<span style="font-size:0.75em;font-weight:normal;">{contact}</span>'
+            f'<span style="font-size:0.75em;font-weight:normal;">{email}</span>'
             f'</a>',
             unsafe_allow_html=True
         )
+        shown = True
 
-    elif method == '電話':
-        tel = contact.replace('-', '').replace(' ', '')
-        st.markdown(
-            f'<a href="tel:{tel}" class="action-btn btn-call">'
-            f'📞　電話をかける<br>'
-            f'<span style="font-size:0.75em;font-weight:normal;">{contact}</span>'
-            f'</a>',
-            unsafe_allow_html=True
-        )
-
-    elif method == 'FAX':
+    # FAX表示
+    if method == 'FAX' and tel:
         st.markdown(
             f'<div class="action-btn btn-fax">'
-            f'📠　FAX送信<br>'
-            f'<span style="font-size:0.75em;font-weight:normal;">{contact}</span>'
+            f'📠　FAX番号：{tel}<br>'
             f'</div>',
             unsafe_allow_html=True
         )
         if order_text:
             st.markdown('**以下の内容をFAXしてください：**')
             st.code(order_text, language=None)
+        shown = True
+
+    if not shown:
+        st.info('💡 連絡先が未登録です。「業者管理」タブから登録できます。')
 
 # ── セッション初期化 ─────────────────────────────────────────
 for k, v in [('confirming', False), ('pending', []), ('done', False), ('done_info', [])]:
@@ -289,12 +297,13 @@ with tab_order:
     # 業者の連絡先をワンタップで確認
     info    = suppliers_map.get(selected, {})
     method  = info.get('発注方法', '未設定')
-    contact = info.get('連絡先', '未登録')
+    tel     = info.get('電話番号', '')
+    email   = info.get('メールアドレス', '')
     icons   = {'電話': '📞', 'FAX': '📠', 'メール': '📧'}
     icon    = icons.get(method, '❓')
+    summary = '　'.join(filter(None, [tel, email])) or '未登録'
 
-    with st.expander(f'{icon}　{selected} の連絡先を確認する'):
-        st.markdown(f'**発注方法：** {method}　　**連絡先：** {contact}')
+    with st.expander(f'{icon}　{selected} の連絡先を確認する　({summary})'):
         contact_buttons(selected, info)
 
     # 商品リスト（縦長・スマホ向け）
@@ -360,24 +369,27 @@ with tab_mgmt:
     for name in supplier_names2:
         info2   = suppliers_map2.get(name, {})
         method2 = info2.get('発注方法', '未設定')
-        contact2= info2.get('連絡先', '未登録')
+        tel2    = info2.get('電話番号', '')
+        email2  = info2.get('メールアドレス', '')
         icon2   = icons.get(method2, '❓')
 
-        with st.expander(f'{icon2}　{name}　／　{contact2}'):
+        with st.expander(f'{icon2}　{name}　／　{tel2}　{email2}'):
             new_method = st.selectbox(
                 '発注方法', METHODS,
                 index=METHODS.index(method2) if method2 in METHODS else 3,
                 key=f'm_{name}'
             )
-            new_contact = st.text_input(
-                '連絡先（電話番号・メール・FAX番号）',
-                value=contact2 if contact2 != '未登録' else '',
-                key=f'c_{name}',
+            new_tel = st.text_input(
+                '📞 電話番号', value=tel2, key=f't_{name}',
                 placeholder='例）092-123-4567'
+            )
+            new_email = st.text_input(
+                '✉️ メールアドレス', value=email2, key=f'e_{name}',
+                placeholder='例）info@example.com'
             )
             if st.button('💾 保存する', key=f's_{name}', type='primary'):
                 try:
-                    save_supplier(name, new_method, new_contact)
+                    save_supplier(name, new_method, new_tel, new_email)
                     st.success(f'✅ {name} の情報を保存しました！')
                     st.rerun()
                 except Exception as e:
