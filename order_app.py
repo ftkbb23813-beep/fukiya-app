@@ -62,13 +62,15 @@ st.markdown("""
   .action-btn {
     display: block;
     text-align: center;
-    padding: 16px 10px;
-    border-radius: 14px;
-    font-size: 1.2em;
+    padding: 20px 10px;
+    border-radius: 16px;
+    font-size: 1.3em;
     font-weight: bold;
     text-decoration: none !important;
     color: white !important;
-    margin: 8px 0;
+    margin: 10px 0;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    letter-spacing: 0.03em;
   }
   .btn-call  { background: #1a7f37; }
   .btn-mail  { background: #0057b8; }
@@ -162,7 +164,7 @@ def write_order(rows):
         sheet.append_row(['発注日時', '発注者', '仕入れ先', '品物名', '頼む数', '入数', '発注方法'])
     sheet.append_rows(rows)
 
-def contact_buttons(supplier_name, info, order_text):
+def contact_buttons(supplier_name, info, order_text=''):
     """メール・電話・FAXのアクションボタンを表示"""
     method  = info.get('発注方法', '').strip()
     contact = info.get('連絡先', '').strip()
@@ -171,31 +173,45 @@ def contact_buttons(supplier_name, info, order_text):
         st.info('💡 連絡先が未登録です。「業者管理」タブから登録できます。')
         return
 
-    subject = urllib.parse.quote(f'【発注】フキヤファミリー　{supplier_name}')
-    body    = urllib.parse.quote(
-        f'いつもお世話になっております。\n以下の通り発注をお願いします。\n\n'
-        f'{order_text}\n\nよろしくお願いいたします。\nフキヤファミリー'
-    )
-
     if method == 'メール':
+        subject = urllib.parse.quote(f'【発注】フキヤファミリー　{supplier_name}')
+        body_text = (
+            f'いつもお世話になっております。\n'
+            f'以下の通り発注をお願いします。\n\n'
+            f'{order_text}\n\n'
+            f'よろしくお願いいたします。\nフキヤファミリー'
+        ) if order_text else 'フキヤファミリーより'
+        body = urllib.parse.quote(body_text)
         href = f'mailto:{contact}?subject={subject}&body={body}'
         st.markdown(
-            f'<a href="{href}" class="action-btn btn-mail">📧 {contact} にメールを送る</a>',
+            f'<a href="{href}" class="action-btn btn-mail">'
+            f'✉️　メールを送る<br>'
+            f'<span style="font-size:0.75em;font-weight:normal;">{contact}</span>'
+            f'</a>',
             unsafe_allow_html=True
         )
+
     elif method == '電話':
         tel = contact.replace('-', '').replace(' ', '')
         st.markdown(
-            f'<a href="tel:{tel}" class="action-btn btn-call">📞 {contact} に電話する</a>',
+            f'<a href="tel:{tel}" class="action-btn btn-call">'
+            f'📞　電話をかける<br>'
+            f'<span style="font-size:0.75em;font-weight:normal;">{contact}</span>'
+            f'</a>',
             unsafe_allow_html=True
         )
+
     elif method == 'FAX':
         st.markdown(
-            f'<a href="#" class="action-btn btn-fax">📠 FAX番号：{contact}</a>',
+            f'<div class="action-btn btn-fax">'
+            f'📠　FAX送信<br>'
+            f'<span style="font-size:0.75em;font-weight:normal;">{contact}</span>'
+            f'</div>',
             unsafe_allow_html=True
         )
-        st.markdown('**以下の内容をFAXしてください：**')
-        st.code(order_text, language=None)
+        if order_text:
+            st.markdown('**以下の内容をFAXしてください：**')
+            st.code(order_text, language=None)
 
 # ── セッション初期化 ─────────────────────────────────────────
 for k, v in [('confirming', False), ('pending', []), ('done', False), ('done_info', [])]:
@@ -278,8 +294,8 @@ with tab_order:
     icon    = icons.get(method, '❓')
 
     with st.expander(f'{icon}　{selected} の連絡先を確認する'):
-        st.markdown(f'**発注方法：** {method}')
-        st.markdown(f'**連絡先：** {contact}')
+        st.markdown(f'**発注方法：** {method}　　**連絡先：** {contact}')
+        contact_buttons(selected, info)
 
     # 商品リスト（縦長・スマホ向け）
     st.markdown(f'#### {selected} の品物一覧')
