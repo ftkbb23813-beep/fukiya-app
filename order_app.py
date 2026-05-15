@@ -459,10 +459,7 @@ def profit_card_html(fee_label, profit_amt, profit_rate, price, cost):
 """
 
 # ── セッション初期化 ─────────────────────────────────────────
-for k, v in [
-    ('confirming', False), ('pending', []), ('done', False), ('done_info', []),
-    ('profit_prev_product', ''), ('profit_cost_num', 0),
-]:
+for k, v in [('confirming', False), ('pending', []), ('done', False), ('done_info', [])]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -670,13 +667,13 @@ with tab_profit:
     st.markdown('### 💰 利益率計算機')
     st.caption('商品を選ぶと原価が自動入力。売価を入れたら即座に計算します。')
 
-    # ── 商品マスタから商品リスト取得 ──────────────────────────
+    # ── 商品マスタ読み込み ────────────────────────────────────
     try:
         profit_products = load_products()
     except Exception:
         profit_products = []
 
-    # ── 商品検索 + プルダウン ──────────────────────────────────
+    # ── 商品検索 → プルダウン絞り込み ────────────────────────
     p_search = st.text_input(
         '🔍 商品を検索（キーワードで絞り込み）',
         placeholder='例：豆腐、冷凍、お菓子...',
@@ -686,58 +683,78 @@ with tab_profit:
     NONE_LABEL = '　（商品を選んでください）'
     if p_search.strip():
         q = p_search.strip().lower()
-        matched = [p for p in profit_products if q in str(p.get('商品名', '')).lower()]
+        matched_pp = [p for p in profit_products if q in str(p.get('商品名', '')).lower()]
     else:
-        matched = profit_products
+        matched_pp = profit_products
 
-    product_names = [NONE_LABEL] + [p.get('商品名', '') for p in matched if p.get('商品名', '')]
+    p_options = [NONE_LABEL] + [p['商品名'] for p in matched_pp if p.get('商品名', '')]
 
     selected_p = st.selectbox(
         '📦 商品を選択（選ぶと原価が自動入力されます）',
-        product_names,
+        p_options,
         key='profit_selectbox'
     )
 
-    # ── 商品選択で原価を自動反映 ──────────────────────────────
     current_p = selected_p if selected_p != NONE_LABEL else ''
-    if current_p != st.session_state.profit_prev_product:
-        st.session_state.profit_prev_product = current_p
-        if current_p:
-            match = next((p for p in profit_products if p.get('商品名') == current_p), None)
-            if match:
-                raw_cost = match.get('原価', match.get('原価（仕入れ値）', match.get('仕入値', 0)))
-                try:
-                    st.session_state.profit_cost_num = int(float(str(raw_cost).replace(',', '').replace('¥', '') or 0))
-                except (ValueError, TypeError):
-                    st.session_state.profit_cost_num = 0
-            else:
-                st.session_state.profit_cost_num = 0
-        else:
-            st.session_state.profit_cost_num = 0
-        st.rerun()
 
-    # 選択中商品バッジ
+    # ── 選択商品の原価を取得（列名ゆらぎに対応） ─────────────
+    def extract_cost(product_row: dict) -> int:
+        """商品マスタのレコードから原価（E列相当）を取り出す。
+        列名が異なる場合も '原価' '仕入' を含む列を自動探索。"""
+        # 完全一致優先
+        for key in ['原価', '原価（仕入れ値）', '仕入値', '仕入れ値', '仕入原価', 'cost']:
+            val = product_row.get(key)
+            if val not in (None, '', 0):
+                try:
+                    n = int(float(str(val).replace(',', '').replace('¥', '').replace('円', '').strip()))
+                    if n > 0:
+                        return n
+                except (ValueError, TypeError):
+                    pass
+        # 部分一致フォールバック：'原価' または '仕入' を含む列
+        for key, val in product_row.items():
+            if ('原価' in str(key) or '仕入' in str(key)) and val not in (None, '', 0):
+                try:
+                    n = int(float(str(val).replace(',', '').replace('¥', '').replace('円', '').strip()))
+                    if n > 0:
+                        return n
+                except (ValueError, TypeError):
+                    pass
+        return 0
+
+    auto_cost = 0
     if current_p:
+        pm = next((p for p in profit_products if p.get('商品名') == current_p), None)
+        if pm:
+            auto_cost = extract_cost(pm)
+        badge_cost_str = f'¥{auto_cost:,}' if auto_cost > 0 else '（原価データなし）'
         st.markdown(
-            f'<div class="profit-product-badge">✅ 選択中：<strong>{current_p}</strong>　（原価を自動入力しました）</div>',
+            f'<div class="profit-product-badge">'
+            f'✅ 選択中：<strong>{current_p}</strong>　原価 → {badge_cost_str}'
+            f'</div>',
             unsafe_allow_html=True
         )
 
     st.divider()
 
-    # ── 原価入力（自動入力 + 手動修正可） ─────────────────────
+    # ── 原価入力
+    # key を商品名に連動させることで、商品が変わると widget が再初期化され
+    # value=auto_cost が確実に反映される。同一商品内では手動編集値を維持。
+    cost_widget_key = f'pcost__{current_p}' if current_p else 'pcost____none'
+
     st.markdown('<span class="profit-input-label">💴 原価（仕入れ値）― 変更もできます</span>', unsafe_allow_html=True)
     cost = st.number_input(
         '原価',
         min_value=0,
+        value=auto_cost,
         step=10,
-        key='profit_cost_num',
+        key=cost_widget_key,
         label_visibility='collapsed',
     )
 
     st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
 
-    # ── 売価入力（大きく・特大） ───────────────────────────────
+    # ── 売価入力（特大）────────────────────────────────────────
     st.markdown('<span class="profit-input-label">🏷️ 売価（販売価格）― 自由に入力</span>', unsafe_allow_html=True)
     price = st.number_input(
         '売価',
