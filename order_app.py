@@ -132,61 +132,82 @@ st.markdown("""
 
   /* ── 利益率計算 ── */
   .profit-card {
-    border-radius: 16px;
-    padding: 20px 16px;
+    border-radius: 18px;
+    padding: 24px 14px 20px;
     margin: 10px 0;
     text-align: center;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.10);
   }
   .profit-card-blue {
-    background: linear-gradient(135deg, #e8f4fd, #d0eaff);
-    border: 3px solid #1a73e8;
+    background: linear-gradient(160deg, #dbeeff, #c0ddff);
+    border: 4px solid #1a73e8;
   }
   .profit-card-green {
-    background: linear-gradient(135deg, #eafaf1, #c8f0da);
-    border: 3px solid #1a7f37;
+    background: linear-gradient(160deg, #e0f8ea, #c0f0d0);
+    border: 4px solid #1a7f37;
   }
   .profit-card-red {
-    background: linear-gradient(135deg, #fdecea, #ffd0cc);
-    border: 3px solid #d32f2f;
+    background: linear-gradient(160deg, #fde8e6, #ffc8c4);
+    border: 4px solid #d32f2f;
   }
-  .profit-card-gray {
-    background: #f5f5f5;
-    border: 2px solid #ccc;
+  .profit-card-danger {
+    background: #f0f0f0;
+    border: 3px solid #999;
   }
   .profit-rate-big-blue {
-    color: #1a73e8;
-    font-size: 2.6em;
+    color: #1055cc;
+    font-size: 3.4em;
     font-weight: 900;
     display: block;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
   }
   .profit-rate-big-green {
-    color: #1a7f37;
-    font-size: 2.6em;
+    color: #166a2c;
+    font-size: 3.4em;
     font-weight: 900;
     display: block;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
   }
   .profit-rate-big-red {
-    color: #d32f2f;
-    font-size: 2.6em;
+    color: #c0180e;
+    font-size: 3.4em;
     font-weight: 900;
     display: block;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
   }
-  .profit-rate-big-gray {
-    color: #888;
-    font-size: 2.6em;
+  .profit-rate-big-danger {
+    color: #777;
+    font-size: 3.4em;
     font-weight: 900;
     display: block;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
   }
-  .profit-label {
-    font-size: 1.1em;
+  .profit-emoji {
+    font-size: 1.8em;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .profit-fee-label {
+    font-size: 1.05em;
     font-weight: bold;
-    margin-bottom: 6px;
+    opacity: 0.75;
     display: block;
+    margin-bottom: 2px;
   }
   .profit-amount {
-    font-size: 1.4em;
+    font-size: 1.5em;
     font-weight: bold;
-    margin-top: 6px;
+    margin-top: 10px;
+    display: block;
+  }
+  .profit-amount-sub {
+    font-size: 1.0em;
+    color: #555;
+    margin-top: 4px;
     display: block;
   }
   .profit-warning {
@@ -194,25 +215,62 @@ st.markdown("""
     border: 2px solid #f0ad4e;
     border-radius: 12px;
     padding: 14px;
-    font-size: 1.1em;
+    font-size: 1.05em;
     font-weight: bold;
     color: #856404;
     text-align: center;
-    margin: 10px 0;
+    margin: 8px 0;
+  }
+  .profit-danger {
+    background: #fdecea;
+    border: 2px solid #d32f2f;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 1.05em;
+    font-weight: bold;
+    color: #b71c1c;
+    text-align: center;
+    margin: 8px 0;
   }
   .profit-input-label {
-    font-size: 1.2em;
+    font-size: 1.25em;
     font-weight: bold;
-    margin-bottom: 4px;
+    margin: 14px 0 4px;
+    display: block;
+  }
+  .profit-product-badge {
+    background: #e8f4fd;
+    border: 1px solid #90caf9;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 1.0em;
+    margin: 8px 0 14px;
+    color: #1a5276;
   }
   .fee-header {
-    font-size: 1.2em;
+    font-size: 1.15em;
     font-weight: bold;
     text-align: center;
     padding: 10px;
     border-radius: 10px;
     margin-bottom: 8px;
+    background: #f0f5fb;
   }
+  .profit-detail-box {
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 1.0em;
+    margin-top: 8px;
+  }
+  .profit-detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #eee;
+  }
+  .profit-detail-row:last-child { border-bottom: none; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -363,38 +421,48 @@ def contact_buttons(supplier_name, info, order_text=''):
         else:
             st.info('💡 連絡先が未登録です。「業者管理」タブから登録できます。')
 
-def profit_card_html(label, profit_amt, profit_rate):
+def profit_card_html(fee_label, profit_amt, profit_rate, price, cost):
     """利益率に応じた色分けカードHTMLを返す"""
     if profit_rate >= 30:
         card_cls = 'profit-card profit-card-blue'
         rate_cls = 'profit-rate-big-blue'
         emoji    = '🎉'
-    elif profit_rate >= 15:
+        status   = '絶好調！'
+    elif profit_rate >= 20:
         card_cls = 'profit-card profit-card-green'
         rate_cls = 'profit-rate-big-green'
         emoji    = '✅'
+        status   = 'まずまず'
     elif profit_rate > 0:
         card_cls = 'profit-card profit-card-red'
         rate_cls = 'profit-rate-big-red'
         emoji    = '⚠️'
+        status   = '要見直し'
     else:
-        card_cls = 'profit-card profit-card-gray'
-        rate_cls = 'profit-rate-big-gray'
+        card_cls = 'profit-card profit-card-danger'
+        rate_cls = 'profit-rate-big-danger'
         emoji    = '❌'
+        status   = '赤字！'
 
-    amt_str  = f'¥{profit_amt:,.0f}'
+    fee_amt  = price * (0.10 if '10' in fee_label else 0.20)
+    amt_str  = f'¥{profit_amt:+,.0f}'
     rate_str = f'{profit_rate:.1f}%'
 
     return f"""
 <div class="{card_cls}">
-  <span class="profit-label">{emoji}　{label}</span>
+  <span class="profit-emoji">{emoji}</span>
+  <span class="profit-fee-label">{fee_label}　{status}</span>
   <span class="{rate_cls}">{rate_str}</span>
-  <span class="profit-amount">利益額：{amt_str}</span>
+  <span class="profit-amount">{amt_str}</span>
+  <span class="profit-amount-sub">（手数料 ¥{fee_amt:,.0f}）</span>
 </div>
 """
 
 # ── セッション初期化 ─────────────────────────────────────────
-for k, v in [('confirming', False), ('pending', []), ('done', False), ('done_info', [])]:
+for k, v in [
+    ('confirming', False), ('pending', []), ('done', False), ('done_info', []),
+    ('profit_prev_product', ''), ('profit_cost_num', 0),
+]:
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -600,38 +668,93 @@ with tab_hayami:
 # ════════════════════════════════════════════════════════════════
 with tab_profit:
     st.markdown('### 💰 利益率計算機')
-    st.caption('原価と売価を入力すると、手数料別の利益が即座に表示されます')
+    st.caption('商品を選ぶと原価が自動入力。売価を入れたら即座に計算します。')
 
-    st.markdown('<div class="profit-input-label">💴 原価（仕入れ値）</div>', unsafe_allow_html=True)
+    # ── 商品マスタから商品リスト取得 ──────────────────────────
+    try:
+        profit_products = load_products()
+    except Exception:
+        profit_products = []
+
+    # ── 商品検索 + プルダウン ──────────────────────────────────
+    p_search = st.text_input(
+        '🔍 商品を検索（キーワードで絞り込み）',
+        placeholder='例：豆腐、冷凍、お菓子...',
+        key='profit_product_search'
+    )
+
+    NONE_LABEL = '　（商品を選んでください）'
+    if p_search.strip():
+        q = p_search.strip().lower()
+        matched = [p for p in profit_products if q in str(p.get('商品名', '')).lower()]
+    else:
+        matched = profit_products
+
+    product_names = [NONE_LABEL] + [p.get('商品名', '') for p in matched if p.get('商品名', '')]
+
+    selected_p = st.selectbox(
+        '📦 商品を選択（選ぶと原価が自動入力されます）',
+        product_names,
+        key='profit_selectbox'
+    )
+
+    # ── 商品選択で原価を自動反映 ──────────────────────────────
+    current_p = selected_p if selected_p != NONE_LABEL else ''
+    if current_p != st.session_state.profit_prev_product:
+        st.session_state.profit_prev_product = current_p
+        if current_p:
+            match = next((p for p in profit_products if p.get('商品名') == current_p), None)
+            if match:
+                raw_cost = match.get('原価', match.get('原価（仕入れ値）', match.get('仕入値', 0)))
+                try:
+                    st.session_state.profit_cost_num = int(float(str(raw_cost).replace(',', '').replace('¥', '') or 0))
+                except (ValueError, TypeError):
+                    st.session_state.profit_cost_num = 0
+            else:
+                st.session_state.profit_cost_num = 0
+        else:
+            st.session_state.profit_cost_num = 0
+        st.rerun()
+
+    # 選択中商品バッジ
+    if current_p:
+        st.markdown(
+            f'<div class="profit-product-badge">✅ 選択中：<strong>{current_p}</strong>　（原価を自動入力しました）</div>',
+            unsafe_allow_html=True
+        )
+
+    st.divider()
+
+    # ── 原価入力（自動入力 + 手動修正可） ─────────────────────
+    st.markdown('<span class="profit-input-label">💴 原価（仕入れ値）― 変更もできます</span>', unsafe_allow_html=True)
     cost = st.number_input(
         '原価',
         min_value=0,
-        value=0,
         step=10,
-        key='cost_input',
+        key='profit_cost_num',
         label_visibility='collapsed',
-        help='仕入れにかかった金額を入力'
     )
 
-    st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+    st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="profit-input-label">🏷️ 売価（販売価格）</div>', unsafe_allow_html=True)
+    # ── 売価入力（大きく・特大） ───────────────────────────────
+    st.markdown('<span class="profit-input-label">🏷️ 売価（販売価格）― 自由に入力</span>', unsafe_allow_html=True)
     price = st.number_input(
         '売価',
         min_value=0,
         value=0,
         step=10,
-        key='price_input',
+        key='profit_price_num',
         label_visibility='collapsed',
-        help='実際に販売する金額を入力'
     )
 
     st.divider()
 
+    # ── 結果表示 ──────────────────────────────────────────────
     if cost == 0 and price == 0:
         st.markdown(
-            '<div style="text-align:center; color:#999; font-size:1.1em; padding:30px 0;">'
-            '⬆️ 原価と売価を入力してください<br>'
+            '<div style="text-align:center; color:#aaa; font-size:1.1em; padding:28px 0;">'
+            '⬆️ 商品を選ぶか、原価・売価を入力してください<br>'
             '<span style="font-size:0.85em;">入力すると自動で計算されます</span>'
             '</div>',
             unsafe_allow_html=True
@@ -641,60 +764,51 @@ with tab_profit:
             '<div class="profit-warning">⚠️ 売価が 0 円です。販売価格を入力してください。</div>',
             unsafe_allow_html=True
         )
-    elif cost > price:
-        st.markdown(
-            '<div class="profit-warning">❌ 原価が売価より高くなっています！赤字です。</div>',
-            unsafe_allow_html=True
-        )
-
-    if price > 0:
-        fee_rates = [
-            ('手数料 10%', 0.10),
-            ('手数料 20%', 0.20),
-        ]
+    else:
+        fee_rates = [('委託手数料 10%', 0.10), ('委託手数料 20%', 0.20)]
 
         col1, col2 = st.columns(2)
 
         for col, (label, rate) in zip([col1, col2], fee_rates):
-            fee_amt    = price * rate
-            profit_amt = price - cost - fee_amt
+            fee_amt     = price * rate
+            profit_amt  = price - cost - fee_amt
             profit_rate = (profit_amt / price * 100) if price > 0 else 0
 
             with col:
                 st.markdown(
-                    f'<div class="fee-header" style="background:#f0f5fb;">{label}</div>',
+                    profit_card_html(label, profit_amt, profit_rate, price, cost),
                     unsafe_allow_html=True
                 )
-                st.markdown(
-                    profit_card_html(f'利益率', profit_amt, profit_rate),
-                    unsafe_allow_html=True
-                )
-
-                # 警告メッセージ
                 if profit_rate < 0:
                     st.markdown(
-                        '<div class="profit-warning">❌ 赤字！原価・手数料が売価を超えています</div>',
+                        '<div class="profit-danger">❌ 赤字！売価を上げましょう</div>',
                         unsafe_allow_html=True
                     )
-                elif profit_rate < 15:
+                elif profit_rate < 20:
                     st.markdown(
-                        '<div class="profit-warning">⚠️ 利益率が低めです。値付けを見直しましょう</div>',
+                        '<div class="profit-warning">⚠️ 利益率20%未満。要見直し</div>',
                         unsafe_allow_html=True
                     )
 
-        # 明細
+        # 明細ボックス
         st.divider()
         st.markdown('##### 📊 計算の内訳')
-        detail_col1, detail_col2 = st.columns(2)
-        for col, (label, rate) in zip([detail_col1, detail_col2], fee_rates):
+        dc1, dc2 = st.columns(2)
+        for col, (label, rate) in zip([dc1, dc2], fee_rates):
             fee_amt    = price * rate
             profit_amt = price - cost - fee_amt
+            profit_rate = (profit_amt / price * 100) if price > 0 else 0
             with col:
-                st.markdown(f'**{label}**')
-                st.markdown(f'- 売価：¥{price:,}')
-                st.markdown(f'- 原価：¥{cost:,}')
-                st.markdown(f'- 手数料：¥{fee_amt:,.0f}')
-                st.markdown(f'- **利益：¥{profit_amt:,.0f}**')
+                st.markdown(
+                    f'<div class="profit-detail-box">'
+                    f'<div style="font-weight:bold;margin-bottom:8px;">{label}</div>'
+                    f'<div class="profit-detail-row"><span>売価</span><span>¥{price:,}</span></div>'
+                    f'<div class="profit-detail-row"><span>原価</span><span>¥{cost:,}</span></div>'
+                    f'<div class="profit-detail-row"><span>手数料</span><span>¥{fee_amt:,.0f}</span></div>'
+                    f'<div class="profit-detail-row"><span>利益</span><span>¥{profit_amt:,.0f}（{profit_rate:.1f}%）</span></div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
 
 # ════════════════════════════════════════════════════════════════
 # タブ④：業者管理
