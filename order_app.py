@@ -10,6 +10,7 @@ SPREADSHEET_ID  = '1_DHnh3SwVreDbWJm56fs6I8fWBwUvmhb2la24yoIHEI'
 SHEET_PRODUCTS  = '商品マスタ'
 SHEET_HISTORY   = '発注履歴'
 SHEET_SUPPLIERS = '業者マスタ'
+SHEET_HAYAMI    = '早見表'
 CREDENTIALS_FILE = 'credentials.json'
 USERS   = ['由香', '由梨', '克治']
 METHODS = ['電話', 'FAX', 'メール', '未設定']
@@ -100,6 +101,118 @@ st.markdown("""
 
   /* タブ */
   .stTabs [data-baseweb="tab"] { font-size: 1em !important; padding: 10px 14px !important; }
+
+  /* ── 早見表 ── */
+  .hayami-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 1.1em;
+    margin-top: 8px;
+  }
+  .hayami-table th {
+    background: #2c5f8a;
+    color: white;
+    padding: 14px 10px;
+    text-align: left;
+    font-size: 1.05em;
+    position: sticky;
+    top: 0;
+  }
+  .hayami-table td {
+    padding: 16px 10px;
+    vertical-align: top;
+    line-height: 1.5;
+    font-size: 1.05em;
+    border-bottom: 1px solid #ddd;
+  }
+  .hayami-row-even { background: #f0f5fb; }
+  .hayami-row-odd  { background: #ffffff; }
+  .hayami-name { font-weight: bold; font-size: 1.1em; }
+  .hayami-price { color: #c0392b; font-weight: bold; font-size: 1.1em; }
+
+  /* ── 利益率計算 ── */
+  .profit-card {
+    border-radius: 16px;
+    padding: 20px 16px;
+    margin: 10px 0;
+    text-align: center;
+  }
+  .profit-card-blue {
+    background: linear-gradient(135deg, #e8f4fd, #d0eaff);
+    border: 3px solid #1a73e8;
+  }
+  .profit-card-green {
+    background: linear-gradient(135deg, #eafaf1, #c8f0da);
+    border: 3px solid #1a7f37;
+  }
+  .profit-card-red {
+    background: linear-gradient(135deg, #fdecea, #ffd0cc);
+    border: 3px solid #d32f2f;
+  }
+  .profit-card-gray {
+    background: #f5f5f5;
+    border: 2px solid #ccc;
+  }
+  .profit-rate-big-blue {
+    color: #1a73e8;
+    font-size: 2.6em;
+    font-weight: 900;
+    display: block;
+  }
+  .profit-rate-big-green {
+    color: #1a7f37;
+    font-size: 2.6em;
+    font-weight: 900;
+    display: block;
+  }
+  .profit-rate-big-red {
+    color: #d32f2f;
+    font-size: 2.6em;
+    font-weight: 900;
+    display: block;
+  }
+  .profit-rate-big-gray {
+    color: #888;
+    font-size: 2.6em;
+    font-weight: 900;
+    display: block;
+  }
+  .profit-label {
+    font-size: 1.1em;
+    font-weight: bold;
+    margin-bottom: 6px;
+    display: block;
+  }
+  .profit-amount {
+    font-size: 1.4em;
+    font-weight: bold;
+    margin-top: 6px;
+    display: block;
+  }
+  .profit-warning {
+    background: #fff3cd;
+    border: 2px solid #f0ad4e;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #856404;
+    text-align: center;
+    margin: 10px 0;
+  }
+  .profit-input-label {
+    font-size: 1.2em;
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+  .fee-header {
+    font-size: 1.2em;
+    font-weight: bold;
+    text-align: center;
+    padding: 10px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -126,6 +239,15 @@ def load_suppliers():
         return {r['業者名']: r for r in rows if r.get('業者名')}
     except Exception:
         return {}
+
+@st.cache_data(ttl=120)
+def load_hayami():
+    try:
+        client = get_client()
+        ws = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_HAYAMI)
+        return ws.get_all_records()
+    except Exception as e:
+        return []
 
 def save_supplier(name, method, tel='', email=''):
     client = get_client()
@@ -175,7 +297,6 @@ def contact_buttons(supplier_name, info, order_text=''):
     tel    = info.get('電話番号', '').strip()
     email  = info.get('メールアドレス', '').strip()
 
-    # 本文（メール用）
     if order_text:
         body_text = (
             f'いつもお世話になっております。\n'
@@ -223,7 +344,6 @@ def contact_buttons(supplier_name, info, order_text=''):
             st.code(order_text, language=None)
 
     else:
-        # 発注方法未設定でも電話番号があれば表示
         if tel:
             tel_clean = tel.replace('-', '').replace(' ', '')
             st.markdown(
@@ -243,6 +363,36 @@ def contact_buttons(supplier_name, info, order_text=''):
         else:
             st.info('💡 連絡先が未登録です。「業者管理」タブから登録できます。')
 
+def profit_card_html(label, profit_amt, profit_rate):
+    """利益率に応じた色分けカードHTMLを返す"""
+    if profit_rate >= 30:
+        card_cls = 'profit-card profit-card-blue'
+        rate_cls = 'profit-rate-big-blue'
+        emoji    = '🎉'
+    elif profit_rate >= 15:
+        card_cls = 'profit-card profit-card-green'
+        rate_cls = 'profit-rate-big-green'
+        emoji    = '✅'
+    elif profit_rate > 0:
+        card_cls = 'profit-card profit-card-red'
+        rate_cls = 'profit-rate-big-red'
+        emoji    = '⚠️'
+    else:
+        card_cls = 'profit-card profit-card-gray'
+        rate_cls = 'profit-rate-big-gray'
+        emoji    = '❌'
+
+    amt_str  = f'¥{profit_amt:,.0f}'
+    rate_str = f'{profit_rate:.1f}%'
+
+    return f"""
+<div class="{card_cls}">
+  <span class="profit-label">{emoji}　{label}</span>
+  <span class="{rate_cls}">{rate_str}</span>
+  <span class="profit-amount">利益額：{amt_str}</span>
+</div>
+"""
+
 # ── セッション初期化 ─────────────────────────────────────────
 for k, v in [('confirming', False), ('pending', []), ('done', False), ('done_info', [])]:
     if k not in st.session_state:
@@ -250,7 +400,12 @@ for k, v in [('confirming', False), ('pending', []), ('done', False), ('done_inf
 
 # ── タイトル＋タブ ───────────────────────────────────────────
 st.title('📦 フキヤファミリー 発注アプリ')
-tab_order, tab_mgmt = st.tabs(['📦　発注する', '📋　業者管理'])
+tab_order, tab_hayami, tab_profit, tab_mgmt = st.tabs([
+    '📦　発注する',
+    '📋　早見表',
+    '💰　利益率計算',
+    '🏭　業者管理',
+])
 
 # ════════════════════════════════════════════════════════════════
 # タブ①：発注する
@@ -316,7 +471,6 @@ with tab_order:
     supplier_names = sorted(set(p.get('仕入れ先', '') for p in all_products if p.get('仕入れ先', '')))
     selected = st.selectbox('🏭 業者を選んでください', supplier_names)
 
-    # 業者の連絡先をワンタップで確認
     info    = suppliers_map.get(selected, {})
     method  = info.get('発注方法', '未設定')
     tel     = info.get('電話番号', '')
@@ -328,7 +482,6 @@ with tab_order:
     with st.expander(f'{icon}　{selected} の連絡先を確認する　({summary})'):
         contact_buttons(selected, info)
 
-    # 商品リスト（縦長・スマホ向け）
     st.markdown(f'#### {selected} の品物一覧')
     products = [p for p in all_products if p.get('仕入れ先', '') == selected]
     order_quantities = {}
@@ -372,7 +525,179 @@ with tab_order:
             st.rerun()
 
 # ════════════════════════════════════════════════════════════════
-# タブ②：業者管理
+# タブ②：早見表
+# ════════════════════════════════════════════════════════════════
+with tab_hayami:
+    st.markdown('### 📋 早見表')
+
+    hayami_data = load_hayami()
+
+    if not hayami_data:
+        st.warning('早見表のデータがありません。スプレッドシートの「早見表」シートを確認してください。')
+    else:
+        # 列名を取得
+        all_keys = list(hayami_data[0].keys()) if hayami_data else []
+
+        # 検索窓
+        search_query = st.text_input(
+            '🔍 商品名・カテゴリで検索',
+            placeholder='例：りんご、野菜、冷凍...',
+            key='hayami_search'
+        )
+
+        # フィルタリング
+        if search_query.strip():
+            q = search_query.strip().lower()
+            filtered = [
+                row for row in hayami_data
+                if any(q in str(v).lower() for v in row.values())
+            ]
+        else:
+            filtered = hayami_data
+
+        st.caption(f'全 {len(hayami_data)} 件中 {len(filtered)} 件表示')
+
+        if not filtered:
+            st.info('該当する商品が見つかりませんでした。')
+        else:
+            # 表示する優先列を決定（商品名・店舗・価格 を先頭に）
+            priority = ['商品名', '店舗', 'カテゴリ', '価格', '単価', '備考']
+            display_keys = [k for k in priority if k in all_keys]
+            display_keys += [k for k in all_keys if k not in display_keys]
+
+            # HTMLテーブル生成
+            th_cells = ''.join(f'<th>{k}</th>' for k in display_keys)
+            rows_html = ''
+            for i, row in enumerate(filtered):
+                row_cls = 'hayami-row-even' if i % 2 == 0 else 'hayami-row-odd'
+                cells = ''
+                for j, k in enumerate(display_keys):
+                    val = str(row.get(k, ''))
+                    if j == 0:
+                        cells += f'<td class="hayami-name">{val}</td>'
+                    elif k in ('価格', '単価'):
+                        cells += f'<td class="hayami-price">{val}</td>'
+                    else:
+                        cells += f'<td>{val}</td>'
+                rows_html += f'<tr class="{row_cls}">{cells}</tr>'
+
+            html = f"""
+<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+  <table class="hayami-table">
+    <thead><tr>{th_cells}</tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+</div>
+"""
+            st.markdown(html, unsafe_allow_html=True)
+
+        if st.button('🔄 最新データを読み込む', key='reload_hayami'):
+            st.cache_data.clear()
+            st.rerun()
+
+# ════════════════════════════════════════════════════════════════
+# タブ③：利益率計算
+# ════════════════════════════════════════════════════════════════
+with tab_profit:
+    st.markdown('### 💰 利益率計算機')
+    st.caption('原価と売価を入力すると、手数料別の利益が即座に表示されます')
+
+    st.markdown('<div class="profit-input-label">💴 原価（仕入れ値）</div>', unsafe_allow_html=True)
+    cost = st.number_input(
+        '原価',
+        min_value=0,
+        value=0,
+        step=10,
+        key='cost_input',
+        label_visibility='collapsed',
+        help='仕入れにかかった金額を入力'
+    )
+
+    st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="profit-input-label">🏷️ 売価（販売価格）</div>', unsafe_allow_html=True)
+    price = st.number_input(
+        '売価',
+        min_value=0,
+        value=0,
+        step=10,
+        key='price_input',
+        label_visibility='collapsed',
+        help='実際に販売する金額を入力'
+    )
+
+    st.divider()
+
+    if cost == 0 and price == 0:
+        st.markdown(
+            '<div style="text-align:center; color:#999; font-size:1.1em; padding:30px 0;">'
+            '⬆️ 原価と売価を入力してください<br>'
+            '<span style="font-size:0.85em;">入力すると自動で計算されます</span>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+    elif price == 0:
+        st.markdown(
+            '<div class="profit-warning">⚠️ 売価が 0 円です。販売価格を入力してください。</div>',
+            unsafe_allow_html=True
+        )
+    elif cost > price:
+        st.markdown(
+            '<div class="profit-warning">❌ 原価が売価より高くなっています！赤字です。</div>',
+            unsafe_allow_html=True
+        )
+
+    if price > 0:
+        fee_rates = [
+            ('手数料 10%', 0.10),
+            ('手数料 20%', 0.20),
+        ]
+
+        col1, col2 = st.columns(2)
+
+        for col, (label, rate) in zip([col1, col2], fee_rates):
+            fee_amt    = price * rate
+            profit_amt = price - cost - fee_amt
+            profit_rate = (profit_amt / price * 100) if price > 0 else 0
+
+            with col:
+                st.markdown(
+                    f'<div class="fee-header" style="background:#f0f5fb;">{label}</div>',
+                    unsafe_allow_html=True
+                )
+                st.markdown(
+                    profit_card_html(f'利益率', profit_amt, profit_rate),
+                    unsafe_allow_html=True
+                )
+
+                # 警告メッセージ
+                if profit_rate < 0:
+                    st.markdown(
+                        '<div class="profit-warning">❌ 赤字！原価・手数料が売価を超えています</div>',
+                        unsafe_allow_html=True
+                    )
+                elif profit_rate < 15:
+                    st.markdown(
+                        '<div class="profit-warning">⚠️ 利益率が低めです。値付けを見直しましょう</div>',
+                        unsafe_allow_html=True
+                    )
+
+        # 明細
+        st.divider()
+        st.markdown('##### 📊 計算の内訳')
+        detail_col1, detail_col2 = st.columns(2)
+        for col, (label, rate) in zip([detail_col1, detail_col2], fee_rates):
+            fee_amt    = price * rate
+            profit_amt = price - cost - fee_amt
+            with col:
+                st.markdown(f'**{label}**')
+                st.markdown(f'- 売価：¥{price:,}')
+                st.markdown(f'- 原価：¥{cost:,}')
+                st.markdown(f'- 手数料：¥{fee_amt:,.0f}')
+                st.markdown(f'- **利益：¥{profit_amt:,.0f}**')
+
+# ════════════════════════════════════════════════════════════════
+# タブ④：業者管理
 # ════════════════════════════════════════════════════════════════
 with tab_mgmt:
     st.markdown('#### 業者の連絡先一覧')
