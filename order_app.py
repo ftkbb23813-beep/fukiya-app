@@ -638,6 +638,12 @@ with tab_hayami:
             display_keys = [k for k in priority if k in all_keys]
             display_keys += [k for k in all_keys if k not in display_keys]
 
+            def _cell(v):
+                """float の整数値（460.0 など）を '460' に変換して返す"""
+                if isinstance(v, float) and not (v != v):  # NaN 除外
+                    return str(int(v)) if v == int(v) else str(v)
+                return str(v) if v != '' else ''
+
             # HTMLテーブル生成
             th_cells = ''.join(f'<th>{k}</th>' for k in display_keys)
             rows_html = ''
@@ -645,7 +651,7 @@ with tab_hayami:
                 row_cls = 'hayami-row-even' if i % 2 == 0 else 'hayami-row-odd'
                 cells = ''
                 for j, k in enumerate(display_keys):
-                    val = str(row.get(k, ''))
+                    val = _cell(row.get(k, ''))
                     if j == 0:
                         cells += f'<td class="hayami-name">{val}</td>'
                     elif k in ('価格', '単価'):
