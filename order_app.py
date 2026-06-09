@@ -1,25 +1,36 @@
 import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
 import datetime
 import urllib.parse
-import json
+import pandas as pd
+import plotly.express as px
 
 # ===== 設定 =====
-SPREADSHEET_ID  = '1_DHnh3SwVreDbWJm56fs6I8fWBwUvmhb2la24yoIHEI'
-SHEET_PRODUCTS  = '商品マスタ'
-SHEET_HISTORY   = '発注履歴'
-SHEET_SUPPLIERS = '業者マスタ'
-SHEET_HAYAMI    = '早見表'
-CREDENTIALS_FILE = 'credentials.json'
+SPREADSHEET_ID       = '1_DHnh3SwVreDbWJm56fs6I8fWBwUvmhb2la24yoIHEI'
+SALES_SPREADSHEET_ID = '1vs-kn-WsIduy1tPG4IDH4sBzsr_cI5NcSBx-bnmyJYQ'
+
+# シートGID と 使用するスプレッドシートIDのマッピング
+SHEET_GIDS = {
+    '商品マスタ': '0',
+    '業者マスタ': '993018520',
+    '早見表':     '93293747',
+    '売上データ': '0',
+}
+# '売上データ' だけ別ファイル。それ以外は SPREADSHEET_ID を使用
+SHEET_SPREADSHEET = {
+    '商品マスタ': SPREADSHEET_ID,
+    '業者マスタ': SPREADSHEET_ID,
+    '早見表':     SPREADSHEET_ID,
+    '売上データ': SALES_SPREADSHEET_ID,
+}
+
 USERS   = ['由香', '由梨', '克治']
 METHODS = ['電話', 'FAX', 'メール', '未設定']
+STORE_COLORS = {
+    '志摩の四季': '#1a7f37',
+    'ゆめ畑':     '#1a73e8',
+    '伊都国':     '#e8620a',
+}
 # ================
-
-SCOPES = [
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/drive.readonly',
-]
 
 # ── スマホ最適化CSS ──────────────────────────────────────────
 st.markdown("""
@@ -124,11 +135,12 @@ st.markdown("""
     line-height: 1.5;
     font-size: 1.05em;
     border-bottom: 1px solid #ddd;
+    color: #111111 !important;
   }
-  .hayami-row-even { background: #f0f5fb; }
-  .hayami-row-odd  { background: #ffffff; }
-  .hayami-name { font-weight: bold; font-size: 1.1em; }
-  .hayami-price { color: #c0392b; font-weight: bold; font-size: 1.1em; }
+  .hayami-row-even { background: #f0f5fb; color: #111111 !important; }
+  .hayami-row-odd  { background: #ffffff; color: #111111 !important; }
+  .hayami-name { font-weight: bold; font-size: 1.1em; color: #111111 !important; }
+  .hayami-price { color: #c0392b !important; font-weight: bold; font-size: 1.1em; }
 
   /* ── 利益率計算 ── */
   .profit-card {
@@ -274,80 +286,70 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Google 接続 ──────────────────────────────────────────────
-def get_client():
-    if 'gcp_service_account' in st.secrets:
-        secret = st.secrets['gcp_service_account']
-        info = json.loads(secret) if isinstance(secret, str) else dict(secret)
-        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
-    else:
-        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
-    return gspread.authorize(creds)
+# ── CSV URL 生成 ──────────────────────────────────────────────
+def _csv_url(sheet_key):
+    sid = SHEET_SPREADSHEET[sheet_key]
+    gid = SHEET_GIDS[sheet_key]
+    return (
+        f'https://docs.google.com/spreadsheets/d/{sid}'
+        f'/export?format=csv&gid={gid}'
+    )
 
+# ── データ読み込み ─────────────────────────────────────────────
 @st.cache_data(ttl=120)
 def load_products():
-    client = get_client()
-    return client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_PRODUCTS).get_all_records()
+    df = pd.read_csv(_csv_url('商品マスタ')).fillna('')
+    df.columns = [c.strip() for c in df.columns]
+    return df.to_dict('records') if not df.empty else []
 
 @st.cache_data(ttl=30)
 def load_suppliers():
     try:
-        client = get_client()
-        rows = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_SUPPLIERS).get_all_records()
-        return {r['業者名']: r for r in rows if r.get('業者名')}
+        df = pd.read_csv(_csv_url('業者マスタ')).fillna('')
+        df.columns = [c.strip() for c in df.columns]
+        return {str(r['業者名']): r.to_dict() for _, r in df.iterrows() if r.get('業者名')}
     except Exception:
         return {}
 
 @st.cache_data(ttl=120)
 def load_hayami():
     try:
-        client = get_client()
-        ws = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_HAYAMI)
-        return ws.get_all_records()
-    except Exception as e:
+        df = pd.read_csv(_csv_url('早見表')).fillna('')
+        df.columns = [c.strip() for c in df.columns]
+        return df.to_dict('records') if not df.empty else []
+    except Exception:
         return []
 
+@st.cache_data(ttl=300)
+def load_sales() -> pd.DataFrame:
+    df = pd.read_csv(_csv_url('売上データ'))
+    if df.empty:
+        return pd.DataFrame(columns=['日付', '店舗名', '金額', '処理日時'])
+    df.columns = [c.strip() for c in df.columns]
+    # 日付・金額列は数値変換するため fillna は変換後に行う
+    df['日付'] = pd.to_datetime(df['日付'], errors='coerce')
+    df['金額'] = pd.to_numeric(
+        df['金額'].astype(str).str.replace(',', '').str.replace('¥', '').str.replace('円', '').str.strip(),
+        errors='coerce'
+    ).fillna(0)
+    # 文字列列の NaN を空文字に統一
+    str_cols = df.select_dtypes(include='object').columns
+    df[str_cols] = df[str_cols].fillna('')
+    df = df.dropna(subset=['日付'])
+    return df
+
+# ── 書き込み（認証不要モードでは未対応） ───────────────────────
 def save_supplier(name, method, tel='', email=''):
-    client = get_client()
-    book  = client.open_by_key(SPREADSHEET_ID)
-    try:
-        sheet = book.worksheet(SHEET_SUPPLIERS)
-    except gspread.WorksheetNotFound:
-        sheet = book.add_worksheet(title=SHEET_SUPPLIERS, rows=200, cols=6)
-        sheet.append_row(['業者名', '発注方法', '電話番号', 'メールアドレス'])
-
-    all_vals = sheet.get_all_values()
-    headers  = all_vals[0] if all_vals else []
-
-    def col_idx(h):
-        return (headers.index(h) + 1) if h in headers else None
-
-    name_col = col_idx('業者名')
-    target_row = None
-    if name_col:
-        for i, row in enumerate(all_vals[1:], start=2):
-            if len(row) >= name_col and row[name_col - 1] == name:
-                target_row = i
-                break
-    if target_row:
-        updates = {'発注方法': method, '電話番号': tel, 'メールアドレス': email}
-        for col_name, val in updates.items():
-            c = col_idx(col_name)
-            if c:
-                sheet.update_cell(target_row, c, val)
-    else:
-        sheet.append_row([name, method, tel, email])
-    st.cache_data.clear()
+    raise NotImplementedError(
+        'スプレッドシートへの書き込みには Google 認証の設定が必要です。'
+        '現在は読み取り専用モードで動作しています。'
+    )
 
 def write_order(rows):
-    client = get_client()
-    book = client.open_by_key(SPREADSHEET_ID)
-    try:
-        sheet = book.worksheet(SHEET_HISTORY)
-    except gspread.WorksheetNotFound:
-        sheet = book.add_worksheet(title=SHEET_HISTORY, rows=1000, cols=10)
-        sheet.append_row(['発注日時', '発注者', '仕入れ先', '品物名', '頼む数', '入数', '発注方法'])
-    sheet.append_rows(rows)
+    raise NotImplementedError(
+        'スプレッドシートへの書き込みには Google 認証の設定が必要です。'
+        '現在は読み取り専用モードで動作しています。'
+    )
 
 def contact_buttons(supplier_name, info, order_text=''):
     """発注方法に応じて電話・メール・FAXボタンを表示"""
@@ -465,10 +467,11 @@ for k, v in [('confirming', False), ('pending', []), ('done', False), ('done_inf
 
 # ── タイトル＋タブ ───────────────────────────────────────────
 st.title('📦 フキヤファミリー 発注アプリ')
-tab_order, tab_hayami, tab_profit, tab_mgmt = st.tabs([
+tab_order, tab_hayami, tab_profit, tab_sales, tab_mgmt = st.tabs([
     '📦　発注する',
     '📋　早見表',
     '💰　利益率計算',
+    '📊　売上分析',
     '🏭　業者管理',
 ])
 
@@ -476,15 +479,21 @@ tab_order, tab_hayami, tab_profit, tab_mgmt = st.tabs([
 # タブ①：発注する
 # ════════════════════════════════════════════════════════════════
 with tab_order:
+    _load_err = False
     try:
         all_products  = load_products()
         suppliers_map = load_suppliers()
     except Exception as e:
         st.error(f'データの読み込みに失敗しました：{e}')
-        st.stop()
+        all_products  = []
+        suppliers_map = {}
+        _load_err = True
+
+    if _load_err:
+        pass  # エラーは上で表示済み
 
     # ── 完了画面 ──────────────────────────────────────────────
-    if st.session_state.done:
+    elif st.session_state.done:
         st.markdown('<div class="success-box">✅ 注文を受け付けました！</div>', unsafe_allow_html=True)
         for d in st.session_state.done_info:
             st.markdown(f'**{d["supplier"]}** への連絡：')
@@ -494,10 +503,9 @@ with tab_order:
             st.session_state.done = False
             st.session_state.done_info = []
             st.rerun()
-        st.stop()
 
     # ── 確認画面 ──────────────────────────────────────────────
-    if st.session_state.confirming:
+    elif st.session_state.confirming:
         st.markdown('<div class="confirm-box">', unsafe_allow_html=True)
         st.subheader('⚠️ この内容で注文しますか？')
         for item in st.session_state.pending:
@@ -528,66 +536,66 @@ with tab_order:
             st.session_state.confirming = False
             st.session_state.pending = []
             st.rerun()
-        st.stop()
 
     # ── 発注入力 ──────────────────────────────────────────────
-    user = st.selectbox('👤 発注者（だれが発注しますか？）', USERS)
+    else:
+        user = st.selectbox('👤 発注者（だれが発注しますか？）', USERS)
 
-    supplier_names = sorted(set(p.get('仕入れ先', '') for p in all_products if p.get('仕入れ先', '')))
-    selected = st.selectbox('🏭 業者を選んでください', supplier_names)
+        supplier_names = sorted(set(p.get('仕入れ先', '') for p in all_products if p.get('仕入れ先', '')))
+        selected = st.selectbox('🏭 業者を選んでください', supplier_names)
 
-    info    = suppliers_map.get(selected, {})
-    method  = info.get('発注方法', '未設定')
-    tel     = info.get('電話番号', '')
-    email   = info.get('メールアドレス', '')
-    icons   = {'電話': '📞', 'FAX': '📠', 'メール': '📧'}
-    icon    = icons.get(method, '❓')
-    summary = '　'.join(filter(None, [tel, email])) or '未登録'
+        info    = suppliers_map.get(selected, {})
+        method  = info.get('発注方法', '未設定')
+        tel     = info.get('電話番号', '')
+        email   = info.get('メールアドレス', '')
+        icons   = {'電話': '📞', 'FAX': '📠', 'メール': '📧'}
+        icon    = icons.get(method, '❓')
+        summary = '　'.join(filter(None, [tel, email])) or '未登録'
 
-    with st.expander(f'{icon}　{selected} の連絡先を確認する　({summary})'):
-        contact_buttons(selected, info)
+        with st.expander(f'{icon}　{selected} の連絡先を確認する　({summary})'):
+            contact_buttons(selected, info)
 
-    st.markdown(f'#### {selected} の品物一覧')
-    products = [p for p in all_products if p.get('仕入れ先', '') == selected]
-    order_quantities = {}
+        st.markdown(f'#### {selected} の品物一覧')
+        products = [p for p in all_products if p.get('仕入れ先', '') == selected]
+        order_quantities = {}
 
-    for p in products:
-        name    = p.get('商品名', '')
-        min_qty = int(p.get('入数', 0) or 0)
-        st.markdown('<div class="product-card">', unsafe_allow_html=True)
-        sub = f'最低 {min_qty} 個から' if min_qty > 0 else ''
-        st.markdown(f'<div class="product-name">{name}</div>'
-                    f'<div class="product-sub">{sub}</div>', unsafe_allow_html=True)
-        qty = st.number_input(
-            '頼む数', min_value=0, value=0,
-            step=max(min_qty, 1), key=name,
-            label_visibility='visible'
-        )
-        order_quantities[name] = (qty, min_qty)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.divider()
-    if st.button(f'📨　{selected} に発注する', use_container_width=True, type='primary'):
-        errors, to_order = [], []
         for p in products:
-            name = p.get('商品名', '')
-            qty, min_qty = order_quantities[name]
-            if qty == 0:
-                continue
-            if min_qty > 0 and qty < min_qty:
-                errors.append(f'❌ {name}：{qty}個は最低 {min_qty} 個より少ないです')
-                continue
-            to_order.append({'name': name, 'qty': qty, 'min_qty': min_qty,
-                              'supplier': selected, 'user': user, 'method': method})
-        if errors:
-            for e in errors:
-                st.error(e)
-        elif not to_order:
-            st.warning('頼む数を入力してください。')
-        else:
-            st.session_state.pending = to_order
-            st.session_state.confirming = True
-            st.rerun()
+            name    = p.get('商品名', '')
+            min_qty = int(p.get('入数', 0) or 0)
+            st.markdown('<div class="product-card">', unsafe_allow_html=True)
+            sub = f'最低 {min_qty} 個から' if min_qty > 0 else ''
+            st.markdown(f'<div class="product-name">{name}</div>'
+                        f'<div class="product-sub">{sub}</div>', unsafe_allow_html=True)
+            qty = st.number_input(
+                '頼む数', min_value=0, value=0,
+                step=max(min_qty, 1), key=name,
+                label_visibility='visible'
+            )
+            order_quantities[name] = (qty, min_qty)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        st.divider()
+        if st.button(f'📨　{selected} に発注する', use_container_width=True, type='primary'):
+            errors, to_order = [], []
+            for p in products:
+                name = p.get('商品名', '')
+                qty, min_qty = order_quantities[name]
+                if qty == 0:
+                    continue
+                if min_qty > 0 and qty < min_qty:
+                    errors.append(f'❌ {name}：{qty}個は最低 {min_qty} 個より少ないです')
+                    continue
+                to_order.append({'name': name, 'qty': qty, 'min_qty': min_qty,
+                                  'supplier': selected, 'user': user, 'method': method})
+            if errors:
+                for e in errors:
+                    st.error(e)
+            elif not to_order:
+                st.warning('頼む数を入力してください。')
+            else:
+                st.session_state.pending = to_order
+                st.session_state.confirming = True
+                st.rerun()
 
 # ════════════════════════════════════════════════════════════════
 # タブ②：早見表
@@ -828,7 +836,144 @@ with tab_profit:
                 )
 
 # ════════════════════════════════════════════════════════════════
-# タブ④：業者管理
+# タブ④：売上分析ダッシュボード
+# ════════════════════════════════════════════════════════════════
+with tab_sales:
+    st.write("デバッグ：売上分析タブの読み込みテスト")
+    st.markdown('### 📊 売上分析ダッシュボード')
+
+    # ── データ読み込み ────────────────────────────────────────
+    try:
+        df_sales = load_sales()
+    except Exception as e:
+        st.error(f'売上データの読み込みに失敗しました：{e}')
+        df_sales = pd.DataFrame(columns=['日付', '店舗名', '金額', '処理日時'])
+
+    # ── 期間切り替え（常に表示） ──────────────────────────────
+    period = st.radio(
+        '集計期間',
+        ['日毎', '週毎', '月毎'],
+        horizontal=True,
+        key='sales_period'
+    )
+
+    # ── 店舗フィルター（常に表示） ────────────────────────────
+    all_stores = sorted(df_sales['店舗名'].dropna().unique().tolist()) if not df_sales.empty else []
+    default_stores = [s for s in ['志摩の四季', 'ゆめ畑', '伊都国'] if s in all_stores] or all_stores
+    selected_stores = st.multiselect(
+        '店舗を選択',
+        options=all_stores,
+        default=default_stores,
+        key='sales_stores'
+    )
+
+    if df_sales.empty:
+        st.warning('売上データがありません。スプレッドシートにデータを入力してください。')
+    else:
+        try:
+            df_f = df_sales[df_sales['店舗名'].isin(selected_stores)].copy() if selected_stores else df_sales.copy()
+
+            # ── 集計 ─────────────────────────────────────────
+            if period == '日毎':
+                df_f['period'] = df_f['日付'].dt.date
+                period_label = '日付'
+            elif period == '週毎':
+                df_f['period'] = df_f['日付'].dt.to_period('W').apply(lambda p: p.start_time.date())
+                period_label = '週（開始日）'
+            else:
+                df_f['period'] = df_f['日付'].dt.to_period('M').apply(lambda p: p.start_time.date())
+                period_label = '月'
+
+            df_agg = df_f.groupby(['period', '店舗名'], as_index=False)['金額'].sum()
+            df_agg['period'] = pd.to_datetime(df_agg['period'])
+
+            color_map = {s: STORE_COLORS.get(s, '#888888') for s in all_stores}
+
+            # ── グラフ描画 ────────────────────────────────────
+            if df_agg.empty:
+                st.info('該当するデータがありません。')
+            elif len(df_agg['period'].unique()) < 2 and period == '日毎':
+                st.info('表示できる十分なデータがありません（日別グラフには2件以上の日付が必要です）。')
+                st.dataframe(df_agg[['period', '店舗名', '金額']].rename(columns={'period': '日付'}), use_container_width=True)
+            elif period == '日毎':
+                fig = px.line(
+                    df_agg,
+                    x='period', y='金額', color='店舗名',
+                    color_discrete_map=color_map,
+                    markers=True,
+                    labels={'period': period_label, '金額': '売上金額（円）', '店舗名': '店舗'},
+                    title='日別 売上推移',
+                )
+                fig.update_layout(
+                    xaxis_title=period_label,
+                    yaxis_tickformat=',.0f',
+                    legend_title='店舗',
+                    margin=dict(t=48, b=8),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                fig = px.bar(
+                    df_agg,
+                    x='period', y='金額', color='店舗名',
+                    color_discrete_map=color_map,
+                    barmode='group',
+                    labels={'period': period_label, '金額': '売上金額（円）', '店舗名': '店舗'},
+                    title=f'{"週" if period == "週毎" else "月"}別 売上比較',
+                )
+                fig.update_layout(
+                    xaxis_title=period_label,
+                    yaxis_tickformat=',.0f',
+                    legend_title='店舗',
+                    margin=dict(t=48, b=8),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            # ── メトリクス ────────────────────────────────────
+            st.divider()
+            total = int(df_f['金額'].sum())
+            store_totals = df_f.groupby('店舗名')['金額'].sum().sort_values(ascending=False)
+
+            st.markdown('#### 集計サマリー')
+            st.metric('総売上金額', f'¥{total:,}')
+
+            if len(store_totals) > 0:
+                cols_m = st.columns(min(len(store_totals), 3))
+                for i, (store, amt) in enumerate(store_totals.items()):
+                    share = amt / total * 100 if total > 0 else 0
+                    with cols_m[i % len(cols_m)]:
+                        st.metric(store, f'¥{int(amt):,}', f'{share:.1f}%')
+
+            # ── 店舗別シェア円グラフ ──────────────────────────
+            if len(store_totals) > 1:
+                st.markdown('#### 店舗別 売上シェア')
+                df_pie = store_totals.reset_index()
+                df_pie.columns = ['店舗名', '金額']
+                fig_pie = px.pie(
+                    df_pie,
+                    names='店舗名',
+                    values='金額',
+                    color='店舗名',
+                    color_discrete_map=color_map,
+                    hole=0.38,
+                )
+                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                fig_pie.update_layout(
+                    showlegend=True,
+                    legend_title='店舗',
+                    margin=dict(t=24, b=8),
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+        except Exception as e:
+            st.error(f'データの集計・描画中にエラーが発生しました：{e}')
+
+    if st.button('🔄 最新データを読み込む', key='reload_sales'):
+        st.cache_data.clear()
+        st.rerun()
+
+
+# ════════════════════════════════════════════════════════════════
+# タブ⑤：業者管理
 # ════════════════════════════════════════════════════════════════
 with tab_mgmt:
     st.markdown('#### 業者の連絡先一覧')
@@ -839,7 +984,8 @@ with tab_mgmt:
         suppliers_map2 = load_suppliers()
     except Exception as e:
         st.error(f'データの読み込みに失敗しました：{e}')
-        st.stop()
+        all_products2  = []
+        suppliers_map2 = {}
 
     supplier_names2 = sorted(set(p.get('仕入れ先', '') for p in all_products2 if p.get('仕入れ先', '')))
     icons = {'電話': '📞', 'FAX': '📠', 'メール': '📧'}
